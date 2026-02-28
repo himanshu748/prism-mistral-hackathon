@@ -1,0 +1,15 @@
+{
+  "name": "prism",
+  "version": "1.0.0",
+  "description": "Prism — Multi-Agent Decision Intelligence Platform powered by Mistral AI",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5"
+  }
+}
