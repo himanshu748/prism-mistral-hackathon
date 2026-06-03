@@ -5,6 +5,8 @@
   "main": "server.js",
   "type": "module",
   "scripts": {
+    "check": "node --check server.js && node --check public/app.js",
+    "test": "NODE_ENV=test node --test",
     "dev": "node server.js",
     "start": "node server.js"
   },

@@ -86,14 +86,23 @@ MISTRAL_API_KEY=your_key_here npm start
 # Open http://localhost:3000
 ```
 
-Prism is local-first: configure `MISTRAL_API_KEY` in the server environment or a process manager. The browser never stores, previews, or submits provider API keys.
+Prism is local-first: configure `MISTRAL_API_KEY` in the server environment or a process manager. The browser never stores, previews, or submits provider API keys. Set `MISTRAL_MODEL` to override the default `mistral-small-latest` model.
 
 Create a local `.env`-style file or use your shell:
 
 ```bash
 export MISTRAL_API_KEY="..."
+export MISTRAL_MODEL="mistral-small-latest"
 export PORT=3000
 npm start
+```
+
+Verify the project before pushing changes:
+
+```bash
+npm run check
+npm test
+npm audit --omit=dev
 ```
 
 ---
@@ -113,7 +122,8 @@ npm start
 ```
 prism/
 ├── server.js          # Express server, agent orchestration, tools API
-├── package.json       # Dependencies
+├── package.json       # Dependencies and verification scripts
+├── test/              # Native Node.js unit tests
 └── public/
     ├── index.html     # UI structure (hero, agents, debate, graph)
     ├── style.css      # Dark-mode glassmorphism design
@@ -128,6 +138,7 @@ prism/
 - Requests are bounded with a small JSON body limit and a 2,000 character question limit.
 - Provider errors returned to the browser are concise and do not include raw upstream response bodies.
 - Model markdown is sanitized with DOMPurify before rendering.
+- Research tool calls are local simulated helpers; they do not claim to fetch live external data.
 
 ---
 

@@ -8,7 +8,8 @@
 ## Local Commands
 - Install dependencies with `npm install`.
 - Run locally with `MISTRAL_API_KEY=... npm start`.
-- Use `node --check server.js` and `node --check public/app.js` after JavaScript changes.
+- Use `npm run check` after JavaScript changes.
+- Use `npm test` for the native Node.js unit tests.
 - Run `npm audit --omit=dev` when dependencies change.
 
 ## Security Notes

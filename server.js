@@ -6,10 +6,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const app = express();
-const PORT = Number.parseInt(process.env.PORT || '3000', 10);
-const MISTRAL_API_KEY = (process.env.MISTRAL_API_KEY || '').trim();
+const DEFAULT_PORT = 3000;
 const MISTRAL_API_URL = 'https://api.mistral.ai/v1/chat/completions';
-const MODEL = 'mistral-small-latest';
+const DEFAULT_MODEL = 'mistral-small-latest';
 const MAX_QUESTION_CHARS = 2000;
 const MISTRAL_TIMEOUT_MS = 120000;
 
@@ -17,21 +16,66 @@ app.disable('x-powered-by');
 app.use(express.json({ limit: '16kb', strict: true }));
 app.use(express.static(join(__dirname, 'public')));
 
+function configuredPort() {
+    const parsed = Number.parseInt(process.env.PORT || `${DEFAULT_PORT}`, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_PORT;
+}
+
+function mistralApiKey() {
+    return (process.env.MISTRAL_API_KEY || '').trim();
+}
+
+function hasMistralKey() {
+    return Boolean(mistralApiKey());
+}
+
+function mistralModel() {
+    return (process.env.MISTRAL_MODEL || DEFAULT_MODEL).trim() || DEFAULT_MODEL;
+}
+
+function validateQuestion(question) {
+    if (typeof question !== 'string' || !question.trim()) {
+        return { ok: false, status: 400, error: 'Question is required' };
+    }
+
+    const normalized = question.trim();
+    if (normalized.length > MAX_QUESTION_CHARS) {
+        return { ok: false, status: 413, error: `Question must be ${MAX_QUESTION_CHARS} characters or fewer.` };
+    }
+
+    return { ok: true, question: normalized };
+}
+
+function safeClientError(error) {
+    const message = error instanceof Error ? error.message : '';
+
+    if (message.includes('MISTRAL_API_KEY') || message.startsWith('Mistral API error')) {
+        return message;
+    }
+
+    if (error instanceof Error && error.name === 'AbortError') {
+        return 'Mistral request timed out. Please try again.';
+    }
+
+    return 'Analysis failed. Check server logs for details.';
+}
+
 // Settings endpoints
 app.get('/api/settings', (req, res) => {
     res.json({
-        hasKey: !!MISTRAL_API_KEY,
-        model: MODEL
+        hasKey: hasMistralKey(),
+        model: mistralModel(),
+        maxQuestionChars: MAX_QUESTION_CHARS
     });
 });
 
 app.post('/api/validate-key', async (req, res) => {
-    if (!MISTRAL_API_KEY) {
+    if (!hasMistralKey()) {
         return res.status(500).json({ valid: false, error: 'MISTRAL_API_KEY is not configured on the server.' });
     }
 
     try {
-        const response = await callMistral({ model: MODEL, messages: [{ role: 'user', content: 'hi' }], max_tokens: 1 });
+        const response = await callMistral({ messages: [{ role: 'user', content: 'hi' }], max_tokens: 1 });
         res.json({ valid: response.ok, error: response.ok ? null : `Mistral returned HTTP ${response.status}.` });
     } catch (e) {
         res.json({ valid: false, error: 'Unable to reach Mistral from the server.' });
@@ -39,10 +83,11 @@ app.post('/api/validate-key', async (req, res) => {
 });
 
 function requireMistralKey() {
-    if (!MISTRAL_API_KEY) {
+    const key = mistralApiKey();
+    if (!key) {
         throw new Error('MISTRAL_API_KEY is not configured on the server.');
     }
-    return MISTRAL_API_KEY;
+    return key;
 }
 
 async function callMistral(payload) {
@@ -57,7 +102,7 @@ async function callMistral(payload) {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${requireMistralKey()}`
             },
-            body: JSON.stringify(payload)
+            body: JSON.stringify({ model: mistralModel(), ...payload })
         });
     } finally {
         clearTimeout(timeout);
@@ -222,7 +267,12 @@ Keep to 250-350 words. Be decisive. Use markdown formatting.`
 // Health Check
 // ============================================
 app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', model: MODEL });
+    res.json({
+        status: 'ok',
+        model: mistralModel(),
+        hasKey: hasMistralKey(),
+        maxQuestionChars: MAX_QUESTION_CHARS
+    });
 });
 
 // ============================================
@@ -236,7 +286,6 @@ async function runResearcherWithTools(question, res) {
 
     // Step 1: Initial call with tools to let the model decide what to search
     const initialResponse = await callMistral({
-        model: MODEL,
         messages,
         tools: RESEARCHER_TOOLS,
         tool_choice: 'auto',
@@ -291,7 +340,6 @@ async function runResearcherWithTools(question, res) {
 
         // Step 2: Final call with tool results to get the analysis (streamed)
         const finalResponse = await callMistral({
-            model: MODEL,
             messages,
             stream: true,
             temperature: 0.7,
@@ -377,7 +425,6 @@ async function streamAgent(agentType, question, context, res) {
     }
 
     const response = await callMistral({
-        model: MODEL,
         messages,
         stream: true,
         temperature: 0.7,
@@ -418,7 +465,6 @@ async function streamDebateAgent(agentType, prompt, res) {
     ];
 
     const response = await callMistral({
-        model: MODEL,
         messages,
         stream: true,
         temperature: 0.7,
@@ -492,7 +538,6 @@ Generate 4-6 nodes per agent (12-18 total) and 10-15 links. Link types: "support
     ];
 
     const response = await callMistral({
-        model: MODEL,
         messages,
         temperature: 0.3,
         max_tokens: 2048,
@@ -511,13 +556,11 @@ Generate 4-6 nodes per agent (12-18 total) and 10-15 links. Link types: "support
 // Main Analysis Endpoint
 // ============================================
 app.post('/api/analyze', async (req, res) => {
-    const { question } = req.body;
-    if (typeof question !== 'string' || !question.trim()) {
-        return res.status(400).json({ error: 'Question is required' });
+    const validation = validateQuestion(req.body?.question);
+    if (!validation.ok) {
+        return res.status(validation.status).json({ error: validation.error });
     }
-    if (question.length > MAX_QUESTION_CHARS) {
-        return res.status(413).json({ error: `Question must be ${MAX_QUESTION_CHARS} characters or fewer.` });
-    }
+    const { question } = validation;
 
     // Set up SSE
     res.setHeader('Content-Type', 'text/event-stream');
@@ -581,8 +624,8 @@ app.post('/api/analyze', async (req, res) => {
         res.end();
 
     } catch (error) {
-        const message = error instanceof Error ? error.message : 'Analysis failed.';
-        if (message.includes('MISTRAL_API_KEY') || message.startsWith('Mistral API error')) {
+        const message = safeClientError(error);
+        if (message.includes('MISTRAL_API_KEY') || message.startsWith('Mistral API error') || message.includes('timed out')) {
             console.warn(`Analysis stopped: ${message}`);
         } else {
             console.error('Analysis error:', error);
@@ -592,6 +635,22 @@ app.post('/api/analyze', async (req, res) => {
     }
 });
 
-app.listen(PORT, () => {
-    console.log(`\n🔮 Prism is running at http://localhost:${PORT}\n`);
-});
+function startServer(port = configuredPort()) {
+    return app.listen(port, () => {
+        console.log(`\nPrism is running at http://localhost:${port}\n`);
+    });
+}
+
+if (process.env.NODE_ENV !== 'test') {
+    startServer();
+}
+
+export {
+    app,
+    configuredPort,
+    hasMistralKey,
+    mistralModel,
+    safeClientError,
+    startServer,
+    validateQuestion
+};
