@@ -1,4 +1,4 @@
-# 🔮 Prism — Multi-Agent Decision Intelligence
+# Prism — Multi-Agent Decision Intelligence
 
 > **Mistral Worldwide Hackathon 2026** | Built with Mistral AI Agents
 
@@ -74,19 +74,27 @@ User Question
 
 ```bash
 # Clone
-git clone https://github.com/YOUR_USERNAME/prism-mistral-hackathon.git
+git clone https://github.com/himanshu748/prism-mistral-hackathon.git
 cd prism-mistral-hackathon
 
 # Install
 npm install
 
 # Run
-MISTRAL_API_KEY=your_key_here node server.js
+MISTRAL_API_KEY=your_key_here npm start
 
 # Open http://localhost:3000
 ```
 
-Or configure the API key through the ⚙️ Settings modal in the UI.
+Prism is local-first: configure `MISTRAL_API_KEY` in the server environment or a process manager. The browser never stores, previews, or submits provider API keys.
+
+Create a local `.env`-style file or use your shell:
+
+```bash
+export MISTRAL_API_KEY="..."
+export PORT=3000
+npm start
+```
 
 ---
 
@@ -111,6 +119,15 @@ prism/
     ├── style.css      # Dark-mode glassmorphism design
     └── app.js         # SSE handling, animations, D3.js graph
 ```
+
+---
+
+## Security
+
+- Mistral keys are server-only and read from `MISTRAL_API_KEY`.
+- Requests are bounded with a small JSON body limit and a 2,000 character question limit.
+- Provider errors returned to the browser are concise and do not include raw upstream response bodies.
+- Model markdown is sanitized with DOMPurify before rendering.
 
 ---
 

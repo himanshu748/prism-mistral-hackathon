@@ -84,6 +84,23 @@ let toolCallCount = 0;
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
 
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function renderMarkdown(markdown) {
+    if (!window.marked || !window.DOMPurify) {
+        return escapeHtml(markdown).replace(/\n/g, '<br>');
+    }
+
+    return DOMPurify.sanitize(marked.parse(markdown || ''));
+}
+
 // ---- Set example question ----
 function setQuestion(el) {
     $('#questionInput').value = el.textContent;
@@ -94,6 +111,7 @@ function setQuestion(el) {
 async function startAnalysis() {
     const question = $('#questionInput').value.trim();
     if (!question || isAnalyzing) return;
+    if (!await ensureServerReady()) return;
 
     isAnalyzing = true;
     agentContents = { researcher: '', advocate: '', critic: '', synthesizer: '' };
@@ -151,6 +169,11 @@ async function startAnalysis() {
             body: JSON.stringify({ question })
         });
 
+        if (!response.ok || !response.body) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.error || 'Analysis request failed.');
+        }
+
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
@@ -177,8 +200,7 @@ async function startAnalysis() {
             }
         }
     } catch (error) {
-        console.error('Analysis failed:', error);
-        showError('Analysis failed. Please try again.');
+        showError(error.message || 'Analysis failed. Please try again.');
     }
 
     isAnalyzing = false;
@@ -243,11 +265,11 @@ function handlePhaseEvent(event) {
             // Render final debate content
             const advContent = $(`#content-debate-advocate`);
             if (debateContents.advocate) {
-                advContent.innerHTML = `<div class="markdown-body">${marked.parse(debateContents.advocate)}</div>`;
+                advContent.innerHTML = `<div class="markdown-body">${renderMarkdown(debateContents.advocate)}</div>`;
             }
             const critContent = $(`#content-debate-critic`);
             if (debateContents.critic) {
-                critContent.innerHTML = `<div class="markdown-body">${marked.parse(debateContents.critic)}</div>`;
+                critContent.innerHTML = `<div class="markdown-body">${renderMarkdown(debateContents.critic)}</div>`;
             }
         }
         return;
@@ -296,7 +318,7 @@ function handlePhaseEvent(event) {
         // Render final markdown
         const contentEl = $(`#content-${agent}`);
         if (contentEl && agentContents[agent]) {
-            contentEl.innerHTML = `<div class="markdown-body">${marked.parse(agentContents[agent])}</div>`;
+            contentEl.innerHTML = `<div class="markdown-body">${renderMarkdown(agentContents[agent])}</div>`;
         }
     }
 }
@@ -307,7 +329,7 @@ function handleChunkEvent(event) {
 
     const contentEl = $(`#content-${agent}`);
     if (contentEl) {
-        const html = marked.parse(agentContents[agent]);
+        const html = renderMarkdown(agentContents[agent]);
         contentEl.innerHTML = `<div class="markdown-body streaming-cursor">${html}</div>`;
         contentEl.scrollTop = contentEl.scrollHeight;
     }
@@ -330,9 +352,9 @@ function handleToolCallEvent(event) {
     card.id = `tool-${event.tool}-${toolCallCount}`;
     card.innerHTML = `
         <div class="tool-call-header">
-            <div class="tool-call-icon">${iconMap[event.tool] || '⚡'}</div>
-            <span class="tool-call-name">${event.tool}()</span>
-            <span class="tool-call-args">${Object.values(event.args).join(', ')}</span>
+            <div class="tool-call-icon">${escapeHtml(iconMap[event.tool] || '⚡')}</div>
+            <span class="tool-call-name">${escapeHtml(event.tool)}()</span>
+            <span class="tool-call-args">${escapeHtml(Object.values(event.args || {}).join(', '))}</span>
         </div>
         <div class="tool-call-result">Executing...</div>
     `;
@@ -359,7 +381,7 @@ function handleDebateChunkEvent(event) {
 
     const contentEl = $(`#content-debate-${agent}`);
     if (contentEl) {
-        const html = marked.parse(debateContents[agent]);
+        const html = renderMarkdown(debateContents[agent]);
         contentEl.innerHTML = `<div class="markdown-body streaming-cursor">${html}</div>`;
         contentEl.scrollTop = contentEl.scrollHeight;
     }
@@ -415,7 +437,6 @@ function handleDoneEvent() {
 }
 
 function showError(message) {
-    console.error(message);
     const existing = document.querySelector('.error-toast');
     if (existing) existing.remove();
     const toast = document.createElement('div');
@@ -426,7 +447,7 @@ function showError(message) {
     setTimeout(() => toast.remove(), 6000);
 
     if (message.includes('401') || message.includes('Unauthorized') || message.includes('API')) {
-        toggleSettings();
+        openSettings();
     }
 }
 
@@ -572,6 +593,18 @@ function resetAnalysis() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+async function ensureServerReady() {
+    try {
+        const res = await fetch('/api/settings');
+        const data = await res.json();
+        if (data.hasKey) return true;
+        showError('MISTRAL_API_KEY is not configured on the server.');
+    } catch (e) {
+        showError('Unable to reach the Prism server.');
+    }
+    return false;
+}
+
 // ---- Init ----
 document.addEventListener('DOMContentLoaded', () => {
     initParticles();
@@ -591,52 +624,51 @@ document.addEventListener('DOMContentLoaded', () => {
 // ---- Settings Modal ----
 function toggleSettings() {
     const modal = $('#settingsModal');
-    modal.classList.toggle('active');
-    if (modal.classList.contains('active')) {
-        $('#apiKeyInput').focus();
+    setSettingsOpen(!modal.classList.contains('active'));
+}
+
+function openSettings() {
+    setSettingsOpen(true);
+}
+
+function setSettingsOpen(open) {
+    const modal = $('#settingsModal');
+    modal.classList.toggle('active', open);
+    if (open) {
+        $('#validateBtn').focus();
     }
 }
 
 function toggleKeyVisibility() {
-    const input = $('#apiKeyInput');
-    input.type = input.type === 'password' ? 'text' : 'password';
+    // Keys are configured server-side only.
 }
 
 async function validateKey() {
-    const keyInput = $('#apiKeyInput');
     const statusEl = $('#keyStatus');
     const validateBtn = $('#validateBtn');
-    const key = keyInput.value.trim();
-
-    if (!key) {
-        statusEl.className = 'key-status error';
-        statusEl.textContent = 'Please enter an API key';
-        return;
-    }
 
     validateBtn.disabled = true;
     statusEl.className = 'key-status loading';
-    statusEl.textContent = 'Validating key...';
+    statusEl.textContent = 'Checking server key...';
 
     try {
         const res = await fetch('/api/validate-key', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ apiKey: key })
+            headers: { 'Content-Type': 'application/json' }
         });
         const result = await res.json();
 
         if (result.valid) {
             statusEl.className = 'key-status success';
-            statusEl.textContent = '✓ Key validated successfully! Saved.';
+            statusEl.textContent = '✓ Server key is configured and reachable.';
             setTimeout(() => toggleSettings(), 1500);
         } else {
             statusEl.className = 'key-status error';
-            statusEl.textContent = `✗ Invalid key: ${result.error}`;
+            statusEl.textContent = `✗ ${result.error || 'Server key check failed.'}`;
         }
     } catch (e) {
         statusEl.className = 'key-status error';
-        statusEl.textContent = `✗ Connection error: ${e.message}`;
+        statusEl.textContent = '✗ Connection error while checking the server key.';
     }
 
     validateBtn.disabled = false;
@@ -646,9 +678,11 @@ async function checkApiKeyStatus() {
     try {
         const res = await fetch('/api/settings');
         const data = await res.json();
-        if (data.keyPreview) {
-            $('#apiKeyInput').placeholder = `Current: ${data.keyPreview}`;
-        }
+        const statusEl = $('#keyStatus');
+        statusEl.className = data.hasKey ? 'key-status success' : 'key-status error';
+        statusEl.textContent = data.hasKey
+            ? `Server key configured for ${data.model}.`
+            : 'MISTRAL_API_KEY is not configured on the server.';
     } catch (e) {
         // ignore
     }

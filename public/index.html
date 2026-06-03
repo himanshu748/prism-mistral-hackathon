@@ -14,6 +14,7 @@
     <link rel="stylesheet" href="style.css">
     <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js"></script>
 </head>
 
 <body>
@@ -363,18 +364,12 @@
                 <button class="modal-close" onclick="toggleSettings()">&times;</button>
             </div>
             <div class="modal-body">
-                <label class="modal-label" for="apiKeyInput">Mistral API Key</label>
-                <p class="modal-hint">Get your key from <a href="https://console.mistral.ai/api-keys"
-                        target="_blank">console.mistral.ai</a></p>
-                <div class="key-input-row">
-                    <input type="password" id="apiKeyInput" class="modal-input"
-                        placeholder="Enter your Mistral API key...">
-                    <button class="key-toggle" onclick="toggleKeyVisibility()" title="Show/Hide key">👁️</button>
-                </div>
+                <label class="modal-label">Server API Key</label>
+                <p class="modal-hint">Set <code>MISTRAL_API_KEY</code> in your server environment. Prism keeps provider
+                    keys out of the browser.</p>
                 <div class="key-status" id="keyStatus"></div>
                 <div class="modal-actions">
-                    <button class="modal-btn validate-btn" id="validateBtn" onclick="validateKey()">Validate &
-                        Save</button>
+                    <button class="modal-btn validate-btn" id="validateBtn" onclick="validateKey()">Check Connection</button>
                 </div>
             </div>
         </div>

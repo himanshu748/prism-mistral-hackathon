@@ -1,5 +1,4 @@
 import express from 'express';
-import cors from 'cors';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
@@ -7,51 +6,67 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const app = express();
-const PORT = 3000;
-let MISTRAL_API_KEY = process.env.MISTRAL_API_KEY || '';
+const PORT = Number.parseInt(process.env.PORT || '3000', 10);
+const MISTRAL_API_KEY = (process.env.MISTRAL_API_KEY || '').trim();
 const MISTRAL_API_URL = 'https://api.mistral.ai/v1/chat/completions';
 const MODEL = 'mistral-small-latest';
+const MAX_QUESTION_CHARS = 2000;
+const MISTRAL_TIMEOUT_MS = 120000;
 
-app.use(cors());
-app.use(express.json());
+app.disable('x-powered-by');
+app.use(express.json({ limit: '16kb', strict: true }));
 app.use(express.static(join(__dirname, 'public')));
 
 // Settings endpoints
 app.get('/api/settings', (req, res) => {
     res.json({
         hasKey: !!MISTRAL_API_KEY,
-        keyPreview: MISTRAL_API_KEY ? `${MISTRAL_API_KEY.slice(0, 8)}...` : null,
         model: MODEL
     });
 });
 
-app.post('/api/settings', (req, res) => {
-    const { apiKey } = req.body;
-    if (!apiKey) return res.status(400).json({ error: 'API key is required' });
-    MISTRAL_API_KEY = apiKey.trim();
-    res.json({ success: true, keyPreview: `${MISTRAL_API_KEY.slice(0, 8)}...` });
-});
-
 app.post('/api/validate-key', async (req, res) => {
-    const { apiKey } = req.body;
-    const key = apiKey || MISTRAL_API_KEY;
+    if (!MISTRAL_API_KEY) {
+        return res.status(500).json({ valid: false, error: 'MISTRAL_API_KEY is not configured on the server.' });
+    }
+
     try {
-        const response = await fetch(MISTRAL_API_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-            body: JSON.stringify({ model: MODEL, messages: [{ role: 'user', content: 'hi' }], max_tokens: 1 })
-        });
-        if (response.ok) {
-            if (apiKey) MISTRAL_API_KEY = apiKey.trim();
-            res.json({ valid: true });
-        } else {
-            const err = await response.text();
-            res.json({ valid: false, error: `${response.status}: ${err}` });
-        }
+        const response = await callMistral({ model: MODEL, messages: [{ role: 'user', content: 'hi' }], max_tokens: 1 });
+        res.json({ valid: response.ok, error: response.ok ? null : `Mistral returned HTTP ${response.status}.` });
     } catch (e) {
-        res.json({ valid: false, error: e.message });
+        res.json({ valid: false, error: 'Unable to reach Mistral from the server.' });
     }
 });
+
+function requireMistralKey() {
+    if (!MISTRAL_API_KEY) {
+        throw new Error('MISTRAL_API_KEY is not configured on the server.');
+    }
+    return MISTRAL_API_KEY;
+}
+
+async function callMistral(payload) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), MISTRAL_TIMEOUT_MS);
+
+    try {
+        return await fetch(MISTRAL_API_URL, {
+            method: 'POST',
+            signal: controller.signal,
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${requireMistralKey()}`
+            },
+            body: JSON.stringify(payload)
+        });
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
+function providerError(response) {
+    return `Mistral API error: HTTP ${response.status}`;
+}
 
 // ============================================
 // Tool Definitions for Function Calling
@@ -220,25 +235,17 @@ async function runResearcherWithTools(question, res) {
     ];
 
     // Step 1: Initial call with tools to let the model decide what to search
-    const initialResponse = await fetch(MISTRAL_API_URL, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${MISTRAL_API_KEY}`
-        },
-        body: JSON.stringify({
-            model: MODEL,
-            messages,
-            tools: RESEARCHER_TOOLS,
-            tool_choice: 'auto',
-            temperature: 0.7,
-            max_tokens: 1024
-        })
+    const initialResponse = await callMistral({
+        model: MODEL,
+        messages,
+        tools: RESEARCHER_TOOLS,
+        tool_choice: 'auto',
+        temperature: 0.7,
+        max_tokens: 1024
     });
 
     if (!initialResponse.ok) {
-        const errorText = await initialResponse.text();
-        throw new Error(`Mistral API error: ${initialResponse.status} - ${errorText}`);
+        throw new Error(providerError(initialResponse));
     }
 
     const initialResult = await initialResponse.json();
@@ -252,7 +259,7 @@ async function runResearcherWithTools(question, res) {
         // Execute each tool call and stream the tool calls to the frontend
         for (const toolCall of assistantMessage.tool_calls) {
             const fnName = toolCall.function.name;
-            const fnArgs = JSON.parse(toolCall.function.arguments);
+            const fnArgs = JSON.parse(toolCall.function.arguments || '{}');
 
             // Send tool call event to frontend
             res.write(`data: ${JSON.stringify({
@@ -283,23 +290,16 @@ async function runResearcherWithTools(question, res) {
         }
 
         // Step 2: Final call with tool results to get the analysis (streamed)
-        const finalResponse = await fetch(MISTRAL_API_URL, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${MISTRAL_API_KEY}`
-            },
-            body: JSON.stringify({
-                model: MODEL,
-                messages,
-                stream: true,
-                temperature: 0.7,
-                max_tokens: 1024
-            })
+        const finalResponse = await callMistral({
+            model: MODEL,
+            messages,
+            stream: true,
+            temperature: 0.7,
+            max_tokens: 1024
         });
 
         if (!finalResponse.ok) {
-            throw new Error(`Mistral API error: ${finalResponse.status}`);
+            throw new Error(providerError(finalResponse));
         }
 
         return await streamResponse(finalResponse, 'researcher', res);
@@ -376,24 +376,16 @@ async function streamAgent(agentType, question, context, res) {
         });
     }
 
-    const response = await fetch(MISTRAL_API_URL, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${MISTRAL_API_KEY}`
-        },
-        body: JSON.stringify({
-            model: MODEL,
-            messages,
-            stream: true,
-            temperature: 0.7,
-            max_tokens: 1024
-        })
+    const response = await callMistral({
+        model: MODEL,
+        messages,
+        stream: true,
+        temperature: 0.7,
+        max_tokens: 1024
     });
 
     if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Mistral API error: ${response.status} - ${errorText}`);
+        throw new Error(providerError(response));
     }
 
     return await streamResponse(response, agentType, res);
@@ -425,23 +417,16 @@ async function streamDebateAgent(agentType, prompt, res) {
         { role: 'user', content: prompt }
     ];
 
-    const response = await fetch(MISTRAL_API_URL, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${MISTRAL_API_KEY}`
-        },
-        body: JSON.stringify({
-            model: MODEL,
-            messages,
-            stream: true,
-            temperature: 0.7,
-            max_tokens: 512
-        })
+    const response = await callMistral({
+        model: MODEL,
+        messages,
+        stream: true,
+        temperature: 0.7,
+        max_tokens: 512
     });
 
     if (!response.ok) {
-        throw new Error(`Mistral API error: ${response.status}`);
+        throw new Error(providerError(response));
     }
 
     // Stream with 'debate' prefix to differentiate from initial analysis
@@ -506,23 +491,16 @@ Generate 4-6 nodes per agent (12-18 total) and 10-15 links. Link types: "support
         }
     ];
 
-    const response = await fetch(MISTRAL_API_URL, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${MISTRAL_API_KEY}`
-        },
-        body: JSON.stringify({
-            model: MODEL,
-            messages,
-            temperature: 0.3,
-            max_tokens: 2048,
-            response_format: { type: 'json_object' }
-        })
+    const response = await callMistral({
+        model: MODEL,
+        messages,
+        temperature: 0.3,
+        max_tokens: 2048,
+        response_format: { type: 'json_object' }
     });
 
     if (!response.ok) {
-        throw new Error(`Mistral API error: ${response.status}`);
+        throw new Error(providerError(response));
     }
 
     const result = await response.json();
@@ -534,8 +512,11 @@ Generate 4-6 nodes per agent (12-18 total) and 10-15 links. Link types: "support
 // ============================================
 app.post('/api/analyze', async (req, res) => {
     const { question } = req.body;
-    if (!question) {
+    if (typeof question !== 'string' || !question.trim()) {
         return res.status(400).json({ error: 'Question is required' });
+    }
+    if (question.length > MAX_QUESTION_CHARS) {
+        return res.status(413).json({ error: `Question must be ${MAX_QUESTION_CHARS} characters or fewer.` });
     }
 
     // Set up SSE
@@ -545,6 +526,7 @@ app.post('/api/analyze', async (req, res) => {
     res.setHeader('X-Accel-Buffering', 'no');
 
     try {
+        requireMistralKey();
         const agentOutputs = {};
 
         // Phase 1: Researcher with Function Calling
@@ -599,8 +581,13 @@ app.post('/api/analyze', async (req, res) => {
         res.end();
 
     } catch (error) {
-        console.error('Analysis error:', error);
-        res.write(`data: ${JSON.stringify({ type: 'error', message: error.message })}\n\n`);
+        const message = error instanceof Error ? error.message : 'Analysis failed.';
+        if (message.includes('MISTRAL_API_KEY') || message.startsWith('Mistral API error')) {
+            console.warn(`Analysis stopped: ${message}`);
+        } else {
+            console.error('Analysis error:', error);
+        }
+        res.write(`data: ${JSON.stringify({ type: 'error', message })}\n\n`);
         res.end();
     }
 });
