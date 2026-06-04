@@ -6,6 +6,8 @@ import {
     hasMistralKey,
     mistralModel,
     parseToolArguments,
+    sanitizeGraphData,
+    sanitizeToolName,
     safeClientError,
     validateQuestion
 } from '../server.js';
@@ -90,6 +92,65 @@ test('safely parses model tool-call arguments', () => {
     assert.deepEqual(parseToolArguments(''), {});
     assert.deepEqual(parseToolArguments('not json'), {});
     assert.deepEqual(parseToolArguments('["array", "is", "not", "args"]'), {});
+});
+
+test('rejects unknown model-requested tool names', () => {
+    assert.equal(sanitizeToolName('search_knowledge_base'), 'search_knowledge_base');
+    assert.equal(sanitizeToolName(' delete_everything '), null);
+    assert.equal(sanitizeToolName(''), null);
+});
+
+test('bounds and validates model-generated graph data', () => {
+    const rawGraph = {
+        nodes: [
+            {
+                id: 'r1',
+                label: 'x'.repeat(200),
+                agent: 'researcher',
+                weight: 50
+            },
+            {
+                id: 'bad',
+                label: 'Ignored agent',
+                agent: 'external',
+                weight: 3
+            },
+            {
+                id: 'a1',
+                label: 'Advocate argument',
+                agent: 'advocate',
+                weight: -2
+            }
+        ],
+        links: [
+            { source: 'r1', target: 'a1', type: 'supports' },
+            { source: 'r1', target: 'missing', type: 'opposes' },
+            { source: 'a1', target: 'a1', type: 'supports' },
+            { source: 'a1', target: 'r1', type: 'unexpected' }
+        ]
+    };
+
+    assert.deepEqual(sanitizeGraphData(rawGraph), {
+        nodes: [
+            {
+                id: 'r1',
+                label: 'x'.repeat(80),
+                agent: 'researcher',
+                weight: 10
+            },
+            {
+                id: 'a1',
+                label: 'Advocate argument',
+                agent: 'advocate',
+                weight: 1
+            }
+        ],
+        links: [
+            { source: 'r1', target: 'a1', type: 'supports' },
+            { source: 'a1', target: 'r1', type: 'relates' }
+        ]
+    });
+    assert.deepEqual(sanitizeGraphData(null), { nodes: [], links: [] });
 });
 
 test('falls back to a valid default port', () => {

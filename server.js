@@ -11,6 +11,9 @@ const MISTRAL_API_URL = 'https://api.mistral.ai/v1/chat/completions';
 const DEFAULT_MODEL = 'mistral-small-latest';
 const MAX_QUESTION_CHARS = 2000;
 const MAX_TOOL_ARG_CHARS = 160;
+const MAX_GRAPH_LABEL_CHARS = 80;
+const MAX_GRAPH_NODES = 18;
+const MAX_GRAPH_LINKS = 20;
 const MISTRAL_TIMEOUT_MS = 120000;
 
 app.disable('x-powered-by');
@@ -148,6 +151,71 @@ function sanitizeToolArgument(value) {
     return undefined;
 }
 
+function sanitizeToolName(value) {
+    if (typeof value !== 'string' || !value.trim()) {
+        return null;
+    }
+    const normalized = value.trim();
+    return KNOWN_TOOL_NAMES.has(normalized) ? normalized : null;
+}
+
+function clampNumber(value, min, max, fallback) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) {
+        return fallback;
+    }
+    return Math.min(max, Math.max(min, number));
+}
+
+function sanitizeGraphLabel(value) {
+    return String(value || 'Argument').trim().slice(0, MAX_GRAPH_LABEL_CHARS) || 'Argument';
+}
+
+function sanitizeGraphData(rawGraph) {
+    if (!rawGraph || typeof rawGraph !== 'object' || Array.isArray(rawGraph)) {
+        return { nodes: [], links: [] };
+    }
+
+    const allowedAgents = new Set(['researcher', 'advocate', 'critic', 'synthesizer']);
+    const allowedLinkTypes = new Set(['supports', 'opposes', 'relates']);
+    const nodes = [];
+    const seenIds = new Set();
+
+    for (const rawNode of Array.isArray(rawGraph.nodes) ? rawGraph.nodes : []) {
+        if (!rawNode || typeof rawNode !== 'object') continue;
+        if (!allowedAgents.has(rawNode.agent)) continue;
+
+        const rawId = String(rawNode.id || '').trim().slice(0, 32);
+        const id = rawId || `${rawNode.agent}-${nodes.length + 1}`;
+        if (seenIds.has(id)) continue;
+
+        seenIds.add(id);
+        nodes.push({
+            id,
+            label: sanitizeGraphLabel(rawNode.label),
+            agent: rawNode.agent,
+            weight: clampNumber(rawNode.weight, 1, 10, 5)
+        });
+
+        if (nodes.length >= MAX_GRAPH_NODES) break;
+    }
+
+    const links = [];
+    for (const rawLink of Array.isArray(rawGraph.links) ? rawGraph.links : []) {
+        if (!rawLink || typeof rawLink !== 'object') continue;
+
+        const source = String(rawLink.source || '').trim().slice(0, 32);
+        const target = String(rawLink.target || '').trim().slice(0, 32);
+        const type = allowedLinkTypes.has(rawLink.type) ? rawLink.type : 'relates';
+        if (!seenIds.has(source) || !seenIds.has(target) || source === target) continue;
+
+        links.push({ source, target, type });
+        if (links.length >= MAX_GRAPH_LINKS) break;
+    }
+
+    return { nodes, links };
+}
+
 // ============================================
 // Tool Definitions for Function Calling
 // ============================================
@@ -203,6 +271,8 @@ const RESEARCHER_TOOLS = [
         }
     }
 ];
+
+const KNOWN_TOOL_NAMES = new Set(RESEARCHER_TOOLS.map((tool) => tool.function.name));
 
 // Simulated tool execution (in a real app, these would call external APIs)
 function executeToolCall(name, args) {
@@ -342,7 +412,9 @@ async function runResearcherWithTools(question, res) {
 
         // Execute each tool call and stream the tool calls to the frontend
         for (const toolCall of assistantMessage.tool_calls) {
-            const fnName = toolCall.function.name;
+            const fnName = sanitizeToolName(toolCall?.function?.name);
+            if (!fnName) continue;
+
             const fnArgs = parseToolArguments(toolCall.function.arguments);
 
             // Send tool call event to frontend
@@ -369,7 +441,7 @@ async function runResearcherWithTools(question, res) {
                 role: 'tool',
                 name: fnName,
                 content: toolResult,
-                tool_call_id: toolCall.id
+                tool_call_id: toolCall.id || fnName
             });
         }
 
@@ -584,7 +656,7 @@ Generate 4-6 nodes per agent (12-18 total) and 10-15 links. Link types: "support
     }
 
     const result = await response.json();
-    return JSON.parse(result.choices[0].message.content);
+    return sanitizeGraphData(JSON.parse(result.choices[0].message.content));
 }
 
 // ============================================
@@ -651,7 +723,7 @@ app.post('/api/analyze', async (req, res) => {
 
         // Extract confidence score for the gauge
         const confidenceMatch = agentOutputs.synthesizer.match(/Confidence:\s*(\d+)%/i);
-        const confidence = confidenceMatch ? parseInt(confidenceMatch[1]) : 70;
+        const confidence = confidenceMatch ? clampNumber(confidenceMatch[1], 0, 100, 70) : 70;
         res.write(`data: ${JSON.stringify({ type: 'confidence', score: confidence })}\n\n`);
 
         // Done
@@ -686,6 +758,8 @@ export {
     hasMistralKey,
     mistralModel,
     parseToolArguments,
+    sanitizeGraphData,
+    sanitizeToolName,
     safeClientError,
     startServer,
     validateQuestion

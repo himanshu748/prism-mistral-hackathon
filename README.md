@@ -136,6 +136,7 @@ prism/
 - Provider errors returned to the browser are concise and do not include raw upstream response bodies.
 - Model markdown is sanitized with DOMPurify before rendering.
 - Research tool calls are local simulated helpers; they do not claim to fetch live external data.
+- Model-requested tool names are allowlisted, and model-generated graph payloads are bounded before they are streamed to the UI.
 
 ---
 
