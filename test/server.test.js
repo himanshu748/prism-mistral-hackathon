@@ -11,6 +11,7 @@ import {
     sanitizeGraphData,
     sanitizeToolName,
     safeClientError,
+    safeServerLogDetails,
     validateQuestion
 } from '../server.js';
 
@@ -63,6 +64,10 @@ test('keeps client-facing error messages safe', () => {
         'Mistral API error: HTTP 429'
     );
     assert.equal(
+        safeClientError(new Error('Mistral API error: leaked sk-secret-token')),
+        'Analysis failed. Check server logs for details.'
+    );
+    assert.equal(
         safeClientError(new Error('stack trace with filesystem paths')),
         'Analysis failed. Check server logs for details.'
     );
@@ -70,6 +75,18 @@ test('keeps client-facing error messages safe', () => {
     const abortError = new Error('The operation was aborted.');
     abortError.name = 'AbortError';
     assert.equal(safeClientError(abortError), 'Mistral request timed out. Please try again.');
+});
+
+test('server log details omit raw provider exception text', () => {
+    const details = safeServerLogDetails(
+        new Error('provider failed with sk-secret-token at /private/local/path')
+    );
+
+    assert.deepEqual(details, {
+        name: 'Error',
+        clientMessage: 'Analysis failed. Check server logs for details.'
+    });
+    assert.doesNotMatch(JSON.stringify(details), /sk-secret-token|\/private\/local\/path/);
 });
 
 test('safely parses model tool-call arguments', () => {

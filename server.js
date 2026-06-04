@@ -53,7 +53,11 @@ function validateQuestion(question) {
 function safeClientError(error) {
     const message = error instanceof Error ? error.message : '';
 
-    if (message.includes('MISTRAL_API_KEY') || message.startsWith('Mistral API error')) {
+    if (message === 'MISTRAL_API_KEY is not configured on the server.') {
+        return message;
+    }
+
+    if (/^Mistral API error: HTTP \d{3}$/.test(message)) {
         return message;
     }
 
@@ -62,6 +66,13 @@ function safeClientError(error) {
     }
 
     return 'Analysis failed. Check server logs for details.';
+}
+
+function safeServerLogDetails(error) {
+    return {
+        name: error instanceof Error ? error.name : typeof error,
+        clientMessage: safeClientError(error)
+    };
 }
 
 // Settings endpoints
@@ -711,7 +722,7 @@ app.post('/api/analyze', async (req, res) => {
             graphData = await generateGraphData(question, agentOutputs);
             res.write(`data: ${JSON.stringify({ type: 'graph', data: graphData })}\n\n`);
         } catch (e) {
-            console.error('Graph generation failed:', e);
+            console.warn('Graph generation failed:', safeServerLogDetails(e));
             res.write(`data: ${JSON.stringify({ type: 'graph', data: { nodes: [], links: [] } })}\n\n`);
         }
 
@@ -735,7 +746,7 @@ app.post('/api/analyze', async (req, res) => {
         if (message.includes('MISTRAL_API_KEY') || message.startsWith('Mistral API error') || message.includes('timed out')) {
             console.warn(`Analysis stopped: ${message}`);
         } else {
-            console.error('Analysis error:', error);
+            console.error('Analysis error:', safeServerLogDetails(error));
         }
         res.write(`data: ${JSON.stringify({ type: 'error', message })}\n\n`);
         res.end();
@@ -761,6 +772,7 @@ export {
     sanitizeGraphData,
     sanitizeToolName,
     safeClientError,
+    safeServerLogDetails,
     startServer,
     validateQuestion
 };
