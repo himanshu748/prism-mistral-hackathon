@@ -10,6 +10,7 @@ const DEFAULT_PORT = 3000;
 const MISTRAL_API_URL = 'https://api.mistral.ai/v1/chat/completions';
 const DEFAULT_MODEL = 'mistral-small-latest';
 const MAX_QUESTION_CHARS = 2000;
+const MAX_TOOL_ARG_CHARS = 160;
 const MISTRAL_TIMEOUT_MS = 120000;
 
 app.disable('x-powered-by');
@@ -120,10 +121,31 @@ function parseToolArguments(rawArgs) {
 
     try {
         const parsed = JSON.parse(rawArgs);
-        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            return {};
+        }
+
+        return Object.fromEntries(
+            Object.entries(parsed)
+                .map(([key, value]) => [key, sanitizeToolArgument(value)])
+                .filter(([, value]) => value !== undefined)
+        );
     } catch {
         return {};
     }
+}
+
+function sanitizeToolArgument(value) {
+    if (typeof value === 'string') {
+        return value.trim().slice(0, MAX_TOOL_ARG_CHARS);
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        return value;
+    }
+    if (typeof value === 'boolean') {
+        return value;
+    }
+    return undefined;
 }
 
 // ============================================

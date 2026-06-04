@@ -80,20 +80,17 @@ cd prism-mistral-hackathon
 # Install
 npm install
 
-# Run
-MISTRAL_API_KEY=your_key_here npm start
+# Run after setting MISTRAL_API_KEY in your shell or process manager
+npm start
 
 # Open http://localhost:3000
 ```
 
 Prism is local-first: configure `MISTRAL_API_KEY` in the server environment or a process manager. The browser never stores, previews, or submits provider API keys. Set `MISTRAL_MODEL` to override the default `mistral-small-latest` model.
 
-Create a local `.env`-style file or use your shell:
+Set provider credentials in your shell or process manager before starting:
 
 ```bash
-export MISTRAL_API_KEY="..."
-export MISTRAL_MODEL="mistral-small-latest"
-export PORT=3000
 npm start
 ```
 

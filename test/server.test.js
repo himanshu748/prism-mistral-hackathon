@@ -74,6 +74,19 @@ test('safely parses model tool-call arguments', () => {
         category: 'news'
     });
 
+    assert.deepEqual(parseToolArguments(JSON.stringify({
+        query: `  ${'x'.repeat(200)}  `,
+        category: 'news',
+        nested: { unsafe: 'shape' },
+        enabled: true,
+        count: 3
+    })), {
+        query: 'x'.repeat(160),
+        category: 'news',
+        enabled: true,
+        count: 3
+    });
+
     assert.deepEqual(parseToolArguments(''), {});
     assert.deepEqual(parseToolArguments('not json'), {});
     assert.deepEqual(parseToolArguments('["array", "is", "not", "args"]'), {});
