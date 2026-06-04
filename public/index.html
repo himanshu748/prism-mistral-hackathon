@@ -51,7 +51,7 @@
                 <span class="badge-dot"></span>
                 Powered by Mistral AI
             </div>
-            <button class="settings-btn" id="settingsBtn" onclick="toggleSettings()" title="API Settings">
+            <button class="settings-btn" id="settingsBtn" onclick="toggleSettings()" title="Server key status">
                 <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
                     <circle cx="9" cy="9" r="2.5" />
                     <path
@@ -360,7 +360,7 @@
     <div class="modal-overlay" id="settingsModal">
         <div class="modal">
             <div class="modal-header">
-                <h2 class="modal-title">⚙️ API Settings</h2>
+                <h2 class="modal-title">⚙️ Server Key Status</h2>
                 <button class="modal-close" onclick="toggleSettings()">&times;</button>
             </div>
             <div class="modal-body">
@@ -369,7 +369,7 @@
                     keys out of the browser.</p>
                 <div class="key-status" id="keyStatus"></div>
                 <div class="modal-actions">
-                    <button class="modal-btn validate-btn" id="validateBtn" onclick="validateKey()">Check Connection</button>
+                    <button class="modal-btn validate-btn" id="validateBtn" onclick="validateServerKey()">Check Connection</button>
                 </div>
             </div>
         </div>

@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import test from 'node:test';
 
 import {
@@ -165,6 +167,23 @@ test('falls back to a valid default port', () => {
     } finally {
         restoreEnv('PORT', originalPort);
     }
+});
+
+test('public browser surface does not store provider keys', async () => {
+    const readProjectFile = (file) => readFile(join(process.cwd(), file), 'utf8');
+    const [readme, index, app] = await Promise.all([
+        readProjectFile('README.md'),
+        readProjectFile('public/index.html'),
+        readProjectFile('public/app.js')
+    ]);
+    const browserSurface = `${index}\n${app}`;
+
+    assert.doesNotMatch(readme, /API Key Management/i);
+    assert.match(readme, /server key is reachable/i);
+    assert.doesNotMatch(browserSurface, /localStorage|sessionStorage/i);
+    assert.doesNotMatch(browserSurface, /type=["']password["']/i);
+    assert.doesNotMatch(browserSurface, /validateKey\(/);
+    assert.match(index, /Server Key Status/);
 });
 
 function restoreEnv(name, value) {

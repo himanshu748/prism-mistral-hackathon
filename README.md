@@ -30,7 +30,7 @@ All of this happens with **real-time SSE streaming**, an **interactive D3.js arg
 | 🌊 **Real-time Streaming** | Server-Sent Events with 6 event types |
 | 🕸️ **Argument Graph** | Interactive D3.js force-directed visualization |
 | 🎨 **Premium UI** | Glassmorphism, particle effects, animated gradients |
-| ⚙️ **API Key Management** | Settings modal with validation |
+| ⚙️ **Server Key Status** | Checks the server-side `MISTRAL_API_KEY` without exposing provider secrets to the browser |
 | 🔄 **Parallel Execution** | Advocate and Critic run simultaneously |
 | 📝 **Markdown Rendering** | Rich formatted agent responses |
 
@@ -86,7 +86,7 @@ npm start
 # Open http://localhost:3000
 ```
 
-Prism is local-first: configure `MISTRAL_API_KEY` in the server environment or a process manager. The browser never stores, previews, or submits provider API keys. Set `MISTRAL_MODEL` to override the default `mistral-small-latest` model.
+Prism is local-first: configure `MISTRAL_API_KEY` in the server environment or a process manager. The browser can check whether the server key is reachable, but it never stores, previews, or submits provider API keys. Set `MISTRAL_MODEL` to override the default `mistral-small-latest` model.
 
 Set provider credentials in your shell or process manager before starting:
 

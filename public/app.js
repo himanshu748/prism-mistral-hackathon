@@ -617,8 +617,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Check API key status on load
-    checkApiKeyStatus();
+    // Check server-side provider key status on load.
+    checkServerKeyStatus();
 });
 
 // ---- Settings Modal ----
@@ -643,7 +643,7 @@ function toggleKeyVisibility() {
     // Keys are configured server-side only.
 }
 
-async function validateKey() {
+async function validateServerKey() {
     const statusEl = $('#keyStatus');
     const validateBtn = $('#validateBtn');
 
@@ -674,7 +674,7 @@ async function validateKey() {
     validateBtn.disabled = false;
 }
 
-async function checkApiKeyStatus() {
+async function checkServerKeyStatus() {
     try {
         const res = await fetch('/api/settings');
         const data = await res.json();
