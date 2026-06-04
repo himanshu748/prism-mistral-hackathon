@@ -5,6 +5,7 @@ import {
     configuredPort,
     hasMistralKey,
     mistralModel,
+    parseToolArguments,
     safeClientError,
     validateQuestion
 } from '../server.js';
@@ -65,6 +66,17 @@ test('keeps client-facing error messages safe', () => {
     const abortError = new Error('The operation was aborted.');
     abortError.name = 'AbortError';
     assert.equal(safeClientError(abortError), 'Mistral request timed out. Please try again.');
+});
+
+test('safely parses model tool-call arguments', () => {
+    assert.deepEqual(parseToolArguments('{"query":"market","category":"news"}'), {
+        query: 'market',
+        category: 'news'
+    });
+
+    assert.deepEqual(parseToolArguments(''), {});
+    assert.deepEqual(parseToolArguments('not json'), {});
+    assert.deepEqual(parseToolArguments('["array", "is", "not", "args"]'), {});
 });
 
 test('falls back to a valid default port', () => {

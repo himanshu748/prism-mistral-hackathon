@@ -113,6 +113,19 @@ function providerError(response) {
     return `Mistral API error: HTTP ${response.status}`;
 }
 
+function parseToolArguments(rawArgs) {
+    if (typeof rawArgs !== 'string' || !rawArgs.trim()) {
+        return {};
+    }
+
+    try {
+        const parsed = JSON.parse(rawArgs);
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+        return {};
+    }
+}
+
 // ============================================
 // Tool Definitions for Function Calling
 // ============================================
@@ -308,7 +321,7 @@ async function runResearcherWithTools(question, res) {
         // Execute each tool call and stream the tool calls to the frontend
         for (const toolCall of assistantMessage.tool_calls) {
             const fnName = toolCall.function.name;
-            const fnArgs = JSON.parse(toolCall.function.arguments || '{}');
+            const fnArgs = parseToolArguments(toolCall.function.arguments);
 
             // Send tool call event to frontend
             res.write(`data: ${JSON.stringify({
@@ -650,6 +663,7 @@ export {
     configuredPort,
     hasMistralKey,
     mistralModel,
+    parseToolArguments,
     safeClientError,
     startServer,
     validateQuestion
